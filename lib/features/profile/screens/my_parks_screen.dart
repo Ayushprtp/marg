@@ -85,8 +85,12 @@ class MyParksScreen extends ConsumerWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text(
-              "My Bookings",
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              "Current Activity",
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             IconButton(
               icon: const Icon(Icons.refresh, color: Colors.white54, size: 20),
@@ -101,7 +105,11 @@ class MyParksScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildBookingsList(AsyncValue<List<Map<String, dynamic>>> bookingsAsync, BuildContext context, WidgetRef ref) {
+  Widget _buildBookingsList(
+    AsyncValue<List<Map<String, dynamic>>> bookingsAsync,
+    BuildContext context,
+    WidgetRef ref,
+  ) {
     return bookingsAsync.when(
       data: (bookings) {
         if (bookings.isEmpty) {
@@ -111,9 +119,16 @@ class MyParksScreen extends ConsumerWidget {
                 padding: EdgeInsets.symmetric(vertical: 20.0),
                 child: Column(
                   children: [
-                    Icon(Icons.bookmark_border, color: Colors.white24, size: 40),
+                    Icon(
+                      Icons.bookmark_border,
+                      color: Colors.white24,
+                      size: 40,
+                    ),
                     SizedBox(height: 8),
-                    Text("No active bookings", style: TextStyle(color: Colors.grey)),
+                    const Text(
+                      "No active activity",
+                      style: TextStyle(color: Colors.grey),
+                    ),
                   ],
                 ),
               ),
@@ -121,37 +136,57 @@ class MyParksScreen extends ConsumerWidget {
           );
         }
         return SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final booking = bookings[index];
-              return _buildBookingItem(booking, context, ref);
-            },
-            childCount: bookings.length,
-          ),
+          delegate: SliverChildBuilderDelegate((context, index) {
+            final booking = bookings[index];
+            return _buildBookingItem(booking, context, ref);
+          }, childCount: bookings.length),
         );
       },
-      loading: () => const SliverToBoxAdapter(child: Center(child: Padding(
-        padding: EdgeInsets.all(20),
-        child: CircularProgressIndicator(color: Color(0xFF799E83)),
-      ))),
-      error: (err, stack) => SliverToBoxAdapter(child: Center(child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Text('Error: $err', style: const TextStyle(color: Colors.redAccent)),
-      ))),
+      loading: () => const SliverToBoxAdapter(
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: CircularProgressIndicator(color: Color(0xFF799E83)),
+          ),
+        ),
+      ),
+      error: (err, stack) => SliverToBoxAdapter(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text(
+              'Error: $err',
+              style: const TextStyle(color: Colors.redAccent),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
-  Widget _buildBookingItem(Map<String, dynamic> booking, BuildContext context, WidgetRef ref) {
+  Widget _buildBookingItem(
+    Map<String, dynamic> booking,
+    BuildContext context,
+    WidgetRef ref,
+  ) {
     final status = booking['status'] ?? '';
     final lotName = booking['parking_lots']?['name'] ?? 'Unknown Lot';
     final slotData = booking['parking_slots'];
     final slotLabel = slotData?['slot_label'] ?? 'N/A';
     final bookedFor = booking['booked_for'] != null
-        ? DateFormat('dd MMM, hh:mm a').format(DateTime.parse(booking['booked_for']).toLocal())
+        ? DateFormat(
+            'dd MMM, hh:mm a',
+          ).format(DateTime.parse(booking['booked_for']).toLocal())
         : 'N/A';
 
     return GestureDetector(
-      onTap: () => context.push('/live-monitor', extra: booking),
+      onTap: () {
+        if (status == 'active') {
+          context.push('/live-monitor', extra: booking);
+        } else {
+          context.push('/active-session', extra: booking);
+        }
+      },
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
         padding: const EdgeInsets.all(16),
@@ -159,7 +194,9 @@ class MyParksScreen extends ConsumerWidget {
           color: const Color(0xFF161B22),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: status == 'active' ? const Color(0xFF799E83).withOpacity(0.3) : Colors.white.withOpacity(0.05),
+            color: status == 'active'
+                ? const Color(0xFF799E83).withOpacity(0.3)
+                : Colors.white.withOpacity(0.05),
           ),
         ),
         child: Column(
@@ -174,7 +211,9 @@ class MyParksScreen extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
-                    status == 'active' ? Icons.bookmark_added : Icons.bookmark_border,
+                    status == 'active'
+                        ? Icons.bookmark_added
+                        : Icons.bookmark_border,
                     color: const Color(0xFF799E83),
                   ),
                 ),
@@ -185,12 +224,19 @@ class MyParksScreen extends ConsumerWidget {
                     children: [
                       Text(
                         lotName,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         "Slot $slotLabel • $bookedFor",
-                        style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.5),
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -199,18 +245,29 @@ class MyParksScreen extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFF799E83).withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
                         status.toString().toUpperCase(),
-                        style: const TextStyle(color: Color(0xFF799E83), fontSize: 10, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          color: Color(0xFF799E83),
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Icon(Icons.chevron_right, color: Colors.white24, size: 18),
+                    const Icon(
+                      Icons.chevron_right,
+                      color: Colors.white24,
+                      size: 18,
+                    ),
                   ],
                 ),
               ],
@@ -220,13 +277,20 @@ class MyParksScreen extends ConsumerWidget {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: () => _showCancelDialog(context, ref, booking['id'], booking['slot_id']),
+                  onPressed: () => _showCancelDialog(
+                    context,
+                    ref,
+                    booking['id'],
+                    booking['slot_id'],
+                  ),
                   icon: const Icon(Icons.cancel_outlined, size: 16),
                   label: const Text("Cancel Booking"),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.redAccent,
                     side: const BorderSide(color: Colors.redAccent, width: 0.5),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     padding: const EdgeInsets.symmetric(vertical: 10),
                   ),
                 ),
@@ -238,13 +302,21 @@ class MyParksScreen extends ConsumerWidget {
     );
   }
 
-  void _showCancelDialog(BuildContext context, WidgetRef ref, String bookingId, String slotId) {
+  void _showCancelDialog(
+    BuildContext context,
+    WidgetRef ref,
+    String bookingId,
+    String slotId,
+  ) {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text("Cancel Booking", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text(
+          "Cancel Booking",
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         content: const Text(
           "Are you sure? A concession fee may apply. The parking slot will be freed.",
           style: TextStyle(color: Colors.white70),
@@ -252,19 +324,36 @@ class MyParksScreen extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text("Keep Booking", style: TextStyle(color: Colors.grey)),
+            child: const Text(
+              "Keep Booking",
+              style: TextStyle(color: Colors.grey),
+            ),
           ),
           TextButton(
             onPressed: () async {
               Navigator.pop(dialogContext);
-              final success = await ref.read(bookingsProvider.notifier).cancelBooking(bookingId, slotId);
-              scaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
-                content: Text(success ? "Booking cancelled." : "Failed to cancel."),
-                backgroundColor: success ? const Color(0xFF799E83) : Colors.redAccent,
-              ));
+              final success = await ref
+                  .read(bookingsProvider.notifier)
+                  .cancelBooking(bookingId, slotId);
+              scaffoldMessengerKey.currentState?.showSnackBar(
+                SnackBar(
+                  content: Text(
+                    success ? "Booking cancelled." : "Failed to cancel.",
+                  ),
+                  backgroundColor: success
+                      ? const Color(0xFF799E83)
+                      : Colors.redAccent,
+                ),
+              );
               ref.invalidate(parkingHistoryProvider);
             },
-            child: const Text("Cancel", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            child: const Text(
+              "Cancel",
+              style: TextStyle(
+                color: Colors.redAccent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ],
       ),
@@ -282,14 +371,25 @@ class MyParksScreen extends ConsumerWidget {
           children: [
             const Text(
               "My Vehicles",
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             TextButton.icon(
               onPressed: () => context.push('/add-vehicle'),
-              icon: const Icon(Icons.add_circle_outline, color: Color(0xFF799E83), size: 20),
+              icon: const Icon(
+                Icons.add_circle_outline,
+                color: Color(0xFF799E83),
+                size: 20,
+              ),
               label: const Text(
                 "Add New",
-                style: TextStyle(color: Color(0xFF799E83), fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: Color(0xFF799E83),
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ],
@@ -298,7 +398,11 @@ class MyParksScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildVehiclesList(AsyncValue<List<Map<String, dynamic>>> vehiclesAsync, BuildContext context, WidgetRef ref) {
+  Widget _buildVehiclesList(
+    AsyncValue<List<Map<String, dynamic>>> vehiclesAsync,
+    BuildContext context,
+    WidgetRef ref,
+  ) {
     return vehiclesAsync.when(
       data: (vehicles) {
         if (vehicles.isEmpty) {
@@ -313,16 +417,25 @@ class MyParksScreen extends ConsumerWidget {
               ),
               child: Column(
                 children: [
-                  const Icon(Icons.directions_car_outlined, color: Colors.white24, size: 40),
+                  const Icon(
+                    Icons.directions_car_outlined,
+                    color: Colors.white24,
+                    size: 40,
+                  ),
                   const SizedBox(height: 12),
-                  const Text("No vehicles added yet", style: TextStyle(color: Colors.grey)),
+                  const Text(
+                    "No vehicles added yet",
+                    style: TextStyle(color: Colors.grey),
+                  ),
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: () => context.push('/add-vehicle'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF799E83),
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     child: const Text("Add Vehicle"),
                   ),
@@ -346,18 +459,33 @@ class MyParksScreen extends ConsumerWidget {
           ),
         );
       },
-      loading: () => const SliverToBoxAdapter(child: Center(child: Padding(
-        padding: EdgeInsets.all(20),
-        child: CircularProgressIndicator(color: Color(0xFF799E83)),
-      ))),
-      error: (err, stack) => SliverToBoxAdapter(child: Center(child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Text('Error: $err', style: const TextStyle(color: Colors.redAccent)),
-      ))),
+      loading: () => const SliverToBoxAdapter(
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: CircularProgressIndicator(color: Color(0xFF799E83)),
+          ),
+        ),
+      ),
+      error: (err, stack) => SliverToBoxAdapter(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text(
+              'Error: $err',
+              style: const TextStyle(color: Colors.redAccent),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
-  Widget _buildVehicleCard(Map<String, dynamic> vehicle, BuildContext context, WidgetRef ref) {
+  Widget _buildVehicleCard(
+    Map<String, dynamic> vehicle,
+    BuildContext context,
+    WidgetRef ref,
+  ) {
     return Container(
       width: 280,
       margin: const EdgeInsets.symmetric(horizontal: 8),
@@ -389,14 +517,21 @@ class MyParksScreen extends ConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFF799E83).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   vehicle['vehicle_type']?.toUpperCase() ?? 'CAR',
-                  style: const TextStyle(color: Color(0xFF799E83), fontSize: 10, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    color: Color(0xFF799E83),
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               // Delete button
@@ -408,7 +543,11 @@ class MyParksScreen extends ConsumerWidget {
                     color: Colors.redAccent.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+                  child: const Icon(
+                    Icons.delete_outline,
+                    color: Colors.redAccent,
+                    size: 18,
+                  ),
                 ),
               ),
             ],
@@ -416,7 +555,12 @@ class MyParksScreen extends ConsumerWidget {
           const Spacer(),
           Text(
             vehicle['plate_number'] ?? '',
-            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1.5),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.5,
+            ),
           ),
           const SizedBox(height: 4),
           Row(
@@ -424,7 +568,10 @@ class MyParksScreen extends ConsumerWidget {
               Expanded(
                 child: Text(
                   vehicle['maker_model'] ?? "Private Vehicle",
-                  style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 14),
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.5),
+                    fontSize: 14,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -437,13 +584,20 @@ class MyParksScreen extends ConsumerWidget {
     );
   }
 
-  void _showDeleteVehicleDialog(BuildContext context, WidgetRef ref, Map<String, dynamic> vehicle) {
+  void _showDeleteVehicleDialog(
+    BuildContext context,
+    WidgetRef ref,
+    Map<String, dynamic> vehicle,
+  ) {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text("Remove Vehicle", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text(
+          "Remove Vehicle",
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         content: Text(
           "Remove ${vehicle['plate_number']} from your account?",
           style: const TextStyle(color: Colors.white70),
@@ -456,13 +610,23 @@ class MyParksScreen extends ConsumerWidget {
           TextButton(
             onPressed: () async {
               Navigator.pop(dialogContext);
-              await ref.read(vehiclesProvider.notifier).deleteVehicle(vehicle['id']);
-              scaffoldMessengerKey.currentState?.showSnackBar(const SnackBar(
-                content: Text("Vehicle removed."),
-                backgroundColor: Color(0xFF799E83),
-              ));
+              await ref
+                  .read(vehiclesProvider.notifier)
+                  .deleteVehicle(vehicle['id']);
+              scaffoldMessengerKey.currentState?.showSnackBar(
+                const SnackBar(
+                  content: Text("Vehicle removed."),
+                  backgroundColor: Color(0xFF799E83),
+                ),
+              );
             },
-            child: const Text("Remove", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            child: const Text(
+              "Remove",
+              style: TextStyle(
+                color: Colors.redAccent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ],
       ),
@@ -480,7 +644,11 @@ class MyParksScreen extends ConsumerWidget {
           children: [
             const Text(
               "Parking History",
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             IconButton(
               icon: const Icon(Icons.refresh, color: Colors.white54, size: 20),
@@ -492,7 +660,10 @@ class MyParksScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildHistoryList(AsyncValue<List<Map<String, dynamic>>> historyAsync, BuildContext context) {
+  Widget _buildHistoryList(
+    AsyncValue<List<Map<String, dynamic>>> historyAsync,
+    BuildContext context,
+  ) {
     return historyAsync.when(
       data: (history) {
         if (history.isEmpty) {
@@ -504,7 +675,10 @@ class MyParksScreen extends ConsumerWidget {
                   children: [
                     Icon(Icons.history, color: Colors.white24, size: 40),
                     SizedBox(height: 8),
-                    Text("No parking history yet", style: TextStyle(color: Colors.grey)),
+                    Text(
+                      "No parking history yet",
+                      style: TextStyle(color: Colors.grey),
+                    ),
                   ],
                 ),
               ),
@@ -512,41 +686,53 @@ class MyParksScreen extends ConsumerWidget {
           );
         }
         return SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final item = history[index];
-              return _buildHistoryItem(item);
-            },
-            childCount: history.length,
-          ),
+          delegate: SliverChildBuilderDelegate((context, index) {
+            final item = history[index];
+            return _buildHistoryItem(context, item);
+          }, childCount: history.length),
         );
       },
-      loading: () => const SliverToBoxAdapter(child: Center(child: Padding(
-        padding: EdgeInsets.all(20),
-        child: CircularProgressIndicator(color: Color(0xFF799E83)),
-      ))),
-      error: (err, stack) => SliverToBoxAdapter(child: Center(child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Text('Error: $err', style: const TextStyle(color: Colors.redAccent)),
-      ))),
+      loading: () => const SliverToBoxAdapter(
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: CircularProgressIndicator(color: Color(0xFF799E83)),
+          ),
+        ),
+      ),
+      error: (err, stack) => SliverToBoxAdapter(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text(
+              'Error: $err',
+              style: const TextStyle(color: Colors.redAccent),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
-  Widget _buildHistoryItem(Map<String, dynamic> item) {
+  Widget _buildHistoryItem(BuildContext context, Map<String, dynamic> item) {
     final lotName = item['parking_lots']?['name'] ?? 'Unknown';
     final status = item['status'] ?? '';
     final createdAt = item['created_at'] != null
-        ? DateFormat('dd MMM yyyy').format(DateTime.parse(item['created_at']).toLocal())
+        ? DateFormat(
+            'dd MMM yyyy',
+          ).format(DateTime.parse(item['created_at']).toLocal())
         : '';
-    
+
     // Calculate cost from payment or slot data
     final payments = item['payments'] as List<dynamic>?;
-    final amount = payments != null && payments.isNotEmpty ? payments.first['amount'] : null;
+    final amount = payments != null && payments.isNotEmpty
+        ? payments.first['amount']
+        : null;
 
     Color statusColor;
     IconData statusIcon;
     switch (status) {
-      case 'arrived':
+      case 'completed':
         statusColor = const Color(0xFF799E83);
         statusIcon = Icons.check_circle;
         break;
@@ -563,7 +749,9 @@ class MyParksScreen extends ConsumerWidget {
         statusIcon = Icons.history;
     }
 
-    return Container(
+    return GestureDetector(
+      onTap: () => context.push('/active-session', extra: item),
+      child: Container(
       margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -589,12 +777,19 @@ class MyParksScreen extends ConsumerWidget {
               children: [
                 Text(
                   lotName,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   "$createdAt • ${status.toUpperCase()}",
-                  style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.5),
+                    fontSize: 12,
+                  ),
                 ),
               ],
             ),
@@ -602,10 +797,15 @@ class MyParksScreen extends ConsumerWidget {
           if (amount != null)
             Text(
               "₹${(amount as num).toStringAsFixed(0)}",
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
+              ),
             ),
         ],
       ),
+    ),
     );
   }
 }

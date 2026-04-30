@@ -20,6 +20,7 @@ class _LiveMonitorScreenState extends State<LiveMonitorScreen> {
   List<Map<String, dynamic>> _sessions = [];
   List<Map<String, dynamic>> _events = [];
   List<Map<String, dynamic>> _slots = [];
+  String? _streamUrl;
   Timer? _pollTimer;
   bool _loading = true;
 
@@ -64,11 +65,22 @@ class _LiveMonitorScreenState extends State<LiveMonitorScreen> {
           .eq('lot_id', lotId)
           .order('slot_label');
 
+      // Fetch camera stream url
+      final camera = await _supabase
+          .from('cameras')
+          .select('stream_url')
+          .eq('lot_id', lotId)
+          .eq('is_active', true)
+          .maybeSingle();
+
       if (mounted) {
         setState(() {
           _sessions = List<Map<String, dynamic>>.from(sessions);
           _events = List<Map<String, dynamic>>.from(events);
           _slots = List<Map<String, dynamic>>.from(slots);
+          if (camera != null) {
+            _streamUrl = camera['stream_url'];
+          }
           _loading = false;
         });
       }
@@ -129,23 +141,33 @@ class _LiveMonitorScreenState extends State<LiveMonitorScreen> {
                 borderRadius: BorderRadius.circular(20),
                 child: Stack(
                   children: [
-                    Mjpeg(
-                      isLive: true,
-                      error: (ctx, err, stack) => Container(
-                        color: const Color(0xFF161B22),
-                        child: const Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.videocam_off, color: Colors.grey, size: 40),
-                              SizedBox(height: 8),
-                              Text("Stream Unavailable", style: TextStyle(color: Colors.grey)),
-                            ],
+                    if (_streamUrl != null)
+                      Mjpeg(
+                        isLive: true,
+                        error: (ctx, err, stack) => Container(
+                          color: const Color(0xFF161B22),
+                          child: const Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.videocam_off, color: Colors.grey, size: 40),
+                                SizedBox(height: 8),
+                                Text("Stream Unavailable", style: TextStyle(color: Colors.grey)),
+                              ],
+                            ),
                           ),
                         ),
+                        stream: _streamUrl!.endsWith('/stream') 
+                          ? _streamUrl! 
+                          : (_streamUrl!.endsWith('/') ? '${_streamUrl}stream' : '$_streamUrl/stream'),
+                      )
+                    else
+                      Container(
+                        color: const Color(0xFF161B22),
+                        child: const Center(
+                          child: CircularProgressIndicator(color: Color(0xFF799E83)),
+                        ),
                       ),
-                      stream: '${Constants.cameraWorkerUrl}/stream/$lotId',
-                    ),
                     // LIVE badge
                     Positioned(
                       top: 12,

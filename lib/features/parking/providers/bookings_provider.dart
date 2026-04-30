@@ -1,34 +1,89 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-final bookingsProvider = StateNotifierProvider<BookingsNotifier, AsyncValue<List<Map<String, dynamic>>>>((ref) {
-  return BookingsNotifier();
-});
+final bookingsProvider =
+    StateNotifierProvider<
+      BookingsNotifier,
+      AsyncValue<List<Map<String, dynamic>>>
+    >((ref) {
+      return BookingsNotifier();
+    });
 
 /// Fetches completed/expired parking sessions (history)
-final parkingHistoryProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
+final parkingHistoryProvider = FutureProvider<List<Map<String, dynamic>>>((
+  ref,
+) async {
   final supabase = Supabase.instance.client;
   final userId = supabase.auth.currentUser?.id;
   if (userId == null) return [];
 
   final response = await supabase
       .from('bookings')
-      .select('*, parking_lots(name, address), parking_slots(slot_label, slot_row, slot_col, price_per_hour), payments(amount, status, method)')
+      .select(
+        '*, parking_lots(name, address), parking_slots(slot_label, slot_row, slot_col, price_per_hour), payments(amount, status, method)',
+      )
       .eq('user_id', userId)
-      .inFilter('status', ['cancelled', 'expired', 'arrived'])
+      .inFilter('status', ['cancelled', 'expired', 'completed'])
       .order('created_at', ascending: false);
 
   return List<Map<String, dynamic>>.from(response);
 });
 
-class BookingsNotifier extends StateNotifier<AsyncValue<List<Map<String, dynamic>>>> {
+class BookingsNotifier
+    extends StateNotifier<AsyncValue<List<Map<String, dynamic>>>> {
+  RealtimeChannel? _subscription;
+
   BookingsNotifier() : super(const AsyncValue.loading()) {
     fetchBookings();
+    _setupRealtime();
   }
 
   final _supabase = Supabase.instance.client;
 
-  /// Fetch all active/current bookings for the user
+  void _setupRealtime() {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) return;
+
+    _subscription = _supabase
+        .channel('public:bookings_and_sessions')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'bookings',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: userId,
+          ),
+          callback: (payload) {
+            fetchBookings();
+            // Also invalidate history when things complete
+            // Not directly available here but we can assume fetchBookings does the active ones
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'parking_sessions',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: userId,
+          ),
+          callback: (payload) {
+            fetchBookings();
+          },
+        )
+        .subscribe();
+  }
+
+  @override
+  void dispose() {
+    _subscription?.unsubscribe();
+    super.dispose();
+  }
+
+  /// Fetch all active/current bookings and sessions for the user
   Future<void> fetchBookings() async {
     state = const AsyncValue.loading();
     try {
@@ -38,14 +93,50 @@ class BookingsNotifier extends StateNotifier<AsyncValue<List<Map<String, dynamic
         return;
       }
 
-      final response = await _supabase
+      final bookingsRes = await _supabase
           .from('bookings')
-          .select('*, parking_lots(name, address), parking_slots(slot_label, slot_row, slot_col, price_per_hour)')
+          .select(
+            '*, parking_lots(name, address), parking_slots(slot_label, slot_row, slot_col, price_per_hour)',
+          )
           .eq('user_id', userId)
           .inFilter('status', ['active', 'arrived'])
           .order('created_at', ascending: false);
 
-      state = AsyncValue.data(List<Map<String, dynamic>>.from(response));
+      final sessionsRes = await _supabase
+          .from('parking_sessions')
+          .select(
+            '*, parking_lots(name, address), parking_slots(slot_label, slot_row, slot_col, price_per_hour)',
+          )
+          .eq('user_id', userId)
+          .isFilter('exited_at', null)
+          .order('entered_at', ascending: false);
+
+      final List<Map<String, dynamic>> combined = [];
+      
+      for (var b in bookingsRes) {
+        combined.add({...b, 'is_session': false});
+      }
+
+      for (var s in sessionsRes) {
+        // Only add sessions if there is NO corresponding arrived booking
+        final hasBooking = combined.any((b) => b['slot_id'] == s['slot_id'] && b['status'] == 'arrived');
+        if (!hasBooking) {
+          combined.add({
+            ...s,
+            'status': 'parked',
+            'booked_for': s['entered_at'],
+            'is_session': true,
+          });
+        }
+      }
+
+      combined.sort((a, b) {
+        final dateA = DateTime.parse(a['created_at'] ?? a['entered_at'] ?? DateTime.now().toIso8601String());
+        final dateB = DateTime.parse(b['created_at'] ?? b['entered_at'] ?? DateTime.now().toIso8601String());
+        return dateB.compareTo(dateA);
+      });
+
+      state = AsyncValue.data(combined);
     } catch (e, stack) {
       state = AsyncValue.error(e, stack);
     }
@@ -65,15 +156,21 @@ class BookingsNotifier extends StateNotifier<AsyncValue<List<Map<String, dynamic
       if (userId == null) return false;
 
       // 1. Create the booking record
-      final bookingResponse = await _supabase.from('bookings').insert({
-        'user_id': userId,
-        'slot_id': slotId,
-        'lot_id': lotId,
-        'vehicle_id': vehicleId,
-        'booked_for': bookedFor.toIso8601String(),
-        'grace_until': bookedFor.add(const Duration(minutes: 15)).toIso8601String(),
-        'status': 'active',
-      }).select().single();
+      final bookingResponse = await _supabase
+          .from('bookings')
+          .insert({
+            'user_id': userId,
+            'slot_id': slotId,
+            'lot_id': lotId,
+            'vehicle_id': vehicleId,
+            'booked_for': bookedFor.toIso8601String(),
+            'grace_until': bookedFor
+                .add(const Duration(minutes: 15))
+                .toIso8601String(),
+            'status': 'active',
+          })
+          .select()
+          .single();
 
       final bookingId = bookingResponse['id'];
 
@@ -88,9 +185,10 @@ class BookingsNotifier extends StateNotifier<AsyncValue<List<Map<String, dynamic
       });
 
       // 3. Update slot status to 'reserved'
-      await _supabase.from('parking_slots').update({
-        'status': 'reserved',
-      }).eq('id', slotId);
+      await _supabase
+          .from('parking_slots')
+          .update({'status': 'reserved'})
+          .eq('id', slotId);
 
       await fetchBookings();
       return true;
@@ -104,14 +202,16 @@ class BookingsNotifier extends StateNotifier<AsyncValue<List<Map<String, dynamic
   Future<bool> cancelBooking(String bookingId, String slotId) async {
     try {
       // Update booking status
-      await _supabase.from('bookings').update({
-        'status': 'cancelled',
-      }).eq('id', bookingId);
+      await _supabase
+          .from('bookings')
+          .update({'status': 'cancelled'})
+          .eq('id', bookingId);
 
       // Free the slot
-      await _supabase.from('parking_slots').update({
-        'status': 'free',
-      }).eq('id', slotId);
+      await _supabase
+          .from('parking_slots')
+          .update({'status': 'free'})
+          .eq('id', slotId);
 
       await fetchBookings();
       return true;
@@ -133,8 +233,14 @@ class BookingsNotifier extends StateNotifier<AsyncValue<List<Map<String, dynamic
           .lt('grace_until', now);
 
       for (final booking in expired) {
-        await _supabase.from('bookings').update({'status': 'expired'}).eq('id', booking['id']);
-        await _supabase.from('parking_slots').update({'status': 'free'}).eq('id', booking['slot_id']);
+        await _supabase
+            .from('bookings')
+            .update({'status': 'expired'})
+            .eq('id', booking['id']);
+        await _supabase
+            .from('parking_slots')
+            .update({'status': 'free'})
+            .eq('id', booking['slot_id']);
       }
 
       if (expired.isNotEmpty) {

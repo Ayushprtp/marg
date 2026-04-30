@@ -15,25 +15,42 @@ class ActiveSessionScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final now = DateTime.now();
     
-    final bool isPreBooking = bookingData != null;
+    final bool isSession = bookingData?['is_session'] == true;
+    final bool isHistory = bookingData != null && bookingData!.containsKey('parking_lots') && !isSession;
+    final bool isBookingOrSessionWithLots = bookingData != null && bookingData!.containsKey('parking_lots');
+    final bool isPreBooking = bookingData != null && !isSession && !isHistory;
     
-    final startTime = isPreBooking 
-        ? now 
-        : now.subtract(const Duration(hours: 1, minutes: 24));
+    // Determine start time based on if it's a parking session or a booking
+    final startTime = isSession && bookingData!['entered_at'] != null
+        ? DateTime.parse(bookingData!['entered_at']).toLocal()
+        : (isHistory && bookingData!['created_at'] != null 
+            ? DateTime.parse(bookingData!['created_at']).toLocal()
+            : (bookingData != null && bookingData!['booked_for'] != null
+                ? DateTime.parse(bookingData!['booked_for']).toLocal()
+                : now));
     
     final duration = now.difference(startTime);
-    final costPerHour = isPreBooking 
-        ? (bookingData!['slot']['price_per_hour'] as num).toDouble()
-        : 40.0;
     
-    final selectedDuration = isPreBooking ? (bookingData!['duration'] as int) : 1;
+    final slotData = isBookingOrSessionWithLots ? bookingData!['parking_slots'] : (bookingData != null ? bookingData!['slot'] : null);
+    final costPerHour = slotData != null ? (slotData['price_per_hour'] as num).toDouble() : 40.0;
+    
+    final selectedDuration = (!isHistory && !isSession && bookingData != null && bookingData!['duration'] != null) ? (bookingData!['duration'] as int) : 1;
         
-    final totalCost = isPreBooking
+    final totalCost = (!isHistory && !isSession)
         ? selectedDuration * costPerHour
         : (duration.inMinutes / 60.0) * costPerHour;
 
-    final lotName = isPreBooking ? bookingData!['lot']['name'] : "DB City Mall, Bhopal";
-    final slotLabel = isPreBooking ? "${bookingData!['slot']['slot_row']}${bookingData!['slot']['slot_col']}" : "A - 104";
+    final lotName = isBookingOrSessionWithLots 
+        ? bookingData!['parking_lots']['name'] 
+        : (bookingData != null && bookingData!['lot'] != null ? bookingData!['lot']['name'] : "DB City Mall, Bhopal");
+        
+    final slotLabel = slotData != null 
+        ? (slotData['slot_label'] ?? "${slotData['slot_row']}${slotData['slot_col']}") 
+        : "A - 104";
+
+    final lotId = isBookingOrSessionWithLots 
+        ? bookingData!['lot_id'] 
+        : (bookingData != null && bookingData!['lot'] != null ? bookingData!['lot']['id'] : 'fb3995b6-3471-4ee2-835b-20a836e598a4');
 
     // Get vehicle plate for display
     final vehiclesAsync = ref.watch(vehiclesProvider);
@@ -77,7 +94,7 @@ class ActiveSessionScreen extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(24),
                 child: Stack(
                   children: [
-                    if (isPreBooking)
+                    if (isPreBooking && !isHistory)
                       Container(
                         color: const Color(0xFF161B22),
                         child: const Center(
@@ -107,9 +124,7 @@ class ActiveSessionScreen extends ConsumerWidget {
                             ),
                           ),
                         ),
-                        stream: isPreBooking
-                            ? '${Constants.cameraWorkerUrl}/stream/${bookingData!['lot']['id']}'
-                            : '${Constants.cameraWorkerUrl}/stream/fb3995b6-3471-4ee2-835b-20a836e598a4',
+                        stream: '${Constants.cameraWorkerUrl}/proxy/$lotId',
                       ),
                       Positioned(
                         top: 16,

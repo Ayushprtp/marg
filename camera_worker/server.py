@@ -2,11 +2,16 @@
 MarG Camera Worker — Smart Parking Detection Server
 Monitors MJPEG feeds, detects vehicle park/unpark via image differencing
 + Flare Vision API OCR, updates Supabase slots & sessions in real-time.
+
+Multi-frame OCR consensus: When a vehicle is first detected, the system
+captures 3-5 OCR readings across successive frames and picks the most
+consistent plate number before committing to the database.
 """
 
 import os, cv2, json, time, base64, logging, threading
 import numpy as np
 import requests
+from collections import Counter
 from datetime import datetime, timezone
 from flask import Flask, Response, jsonify
 from flask_cors import CORS
@@ -24,8 +29,10 @@ FLARE_API_KEY  = os.getenv("FLARE_API_KEY", "")
 FLARE_MODEL    = os.getenv("FLARE_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
 SUPABASE_URL   = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY   = os.getenv("SUPABASE_ANON_KEY", "")
-CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "30"))
-CHANGE_THRESH  = 0.03  # 3% pixel change triggers analysis
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "10"))
+CHANGE_THRESH  = float(os.getenv("CHANGE_THRESH", "0.01"))  # 1% pixel change triggers analysis
+OCR_CONSENSUS_ROUNDS = int(os.getenv("OCR_CONSENSUS_ROUNDS", "5"))  # Increased for better accuracy
+OCR_CONSENSUS_DELAY  = float(os.getenv("OCR_CONSENSUS_DELAY", "2.0"))  # Faster polling during consensus
 
 # ─── Camera Registry (loaded from DB on startup) ───
 CAMERAS = {}  # lot_id -> {stream_url, camera_id, slots, name}
@@ -133,12 +140,16 @@ def compute_change(prev, curr):
 #  Flare Vision API — Vehicle Detection + Plate OCR
 # ════════════════════════════════════════════════════════════════
 
-VISION_PROMPT = """Analyze this parking lot camera image carefully.
-1. Is there a vehicle (car/bike/truck) parked in view?
-2. If yes, read the license plate number exactly as shown.
+VISION_PROMPT = """Analyze this parking slot image.
+1. Determine if a vehicle (car, bike, suv, truck) is present.
+2. If present, extract the vehicle's license plate number accurately. Look specifically for Indian license plates (e.g., MP20SJ1641, MH12AB1234).
+3. Identify the vehicle type.
+4. Provide a confidence score for your detection.
 
-Respond ONLY with valid JSON (no markdown, no explanation):
-{"vehicle_present": true/false, "plate_number": "XXYYZZ1234" or null, "vehicle_type": "car"/"bike"/"truck"/null, "confidence": 0.0-1.0}"""
+CRITICAL: If a vehicle is present but the plate is partially obscured, try your best to read the visible characters. Normalize the plate format by removing spaces and special characters.
+
+Respond ONLY with valid JSON (no markdown, no explanation, no backticks):
+{"vehicle_present": true/false, "plate_number": "MP20SJ1641" or null, "vehicle_type": "car"/"bike"/"suv"/"truck"/null, "confidence": 0.0-1.0}"""
 
 def analyze_frame_with_vision(jpg_bytes):
     """Send frame to Flare API for vehicle detection + plate OCR."""
@@ -184,6 +195,31 @@ def analyze_frame_with_vision(jpg_bytes):
     return None
 
 
+def normalize_plate(plate):
+    """Normalize a plate string for comparison: uppercase, strip spaces/hyphens."""
+    if not plate:
+        return None
+    return plate.replace(" ", "").replace("-", "").replace(".", "").upper().strip()
+
+
+def consensus_plate(readings):
+    """
+    Given a list of plate readings (strings or None), return the best consensus plate.
+    Uses frequency voting across normalized readings. If no clear winner, returns the
+    most common non-None value.
+    """
+    cleaned = [normalize_plate(r) for r in readings if r is not None]
+    if not cleaned:
+        return None
+
+    # Count occurrences
+    counts = Counter(cleaned)
+    best_plate, best_count = counts.most_common(1)[0]
+
+    log.info(f"  OCR Consensus: {dict(counts)} → winner='{best_plate}' (seen {best_count}/{len(readings)} times)")
+    return best_plate
+
+
 # ════════════════════════════════════════════════════════════════
 #  Detection State Machine (per lot)
 # ════════════════════════════════════════════════════════════════
@@ -195,6 +231,8 @@ class LotMonitor:
         self.prev_frames = {}
         self.latest_frame_jpg = None
         self.slots_state = {}
+        # Pending consensus tracker: slot_label -> {"readings": [...], "vehicle_types": [...], "confidences": [...]}
+        self.pending_consensus = {}
         for s in self.config.get("slots", ["A1"]):
             self.slots_state[s] = {"is_occupied": False, "plate": None}
             self.prev_frames[s] = None
@@ -211,6 +249,81 @@ class LotMonitor:
                 self.events = self.events[-50:]
         log.info(f"[{self.config['name']}] {event_type}: plate={plate} {detail}")
 
+    def _grab_slot_frame(self, slot_index, num_slots):
+        """Grab a fresh frame from the stream and crop to the given slot."""
+        frame, jpg = grab_frame(self.config["stream_url"])
+        if frame is None:
+            return None, None
+        self.latest_frame_jpg = jpg
+        height, width, _ = frame.shape
+        slot_width = width // num_slots
+        x_start = slot_index * slot_width
+        x_end = width if slot_index == num_slots - 1 else (slot_index + 1) * slot_width
+        slot_frame = frame[:, x_start:x_end]
+        _, buffer = cv2.imencode('.jpg', slot_frame)
+        return slot_frame, buffer.tobytes()
+
+    def _run_consensus_ocr(self, slot_index, num_slots, slot_label):
+        """
+        Run multiple OCR reads on fresh frames for a slot, then vote on the best plate.
+        This runs in-line (blocking) so that by the time we return, we have a consensus.
+        """
+        plate_readings = []
+        vehicle_types = []
+        confidences = []
+        presence_votes = []
+
+        log.info(f"[{self.config['name']}] Starting {OCR_CONSENSUS_ROUNDS}-round OCR consensus for {slot_label}...")
+
+        for round_num in range(OCR_CONSENSUS_ROUNDS):
+            # Grab a fresh frame for each round
+            if round_num > 0:
+                time.sleep(OCR_CONSENSUS_DELAY)
+
+            slot_frame, slot_jpg = self._grab_slot_frame(slot_index, num_slots)
+            if slot_jpg is None:
+                log.warning(f"  Round {round_num+1}: frame grab failed, skipping")
+                continue
+
+            result = analyze_frame_with_vision(slot_jpg)
+            if result is None:
+                log.warning(f"  Round {round_num+1}: API returned None, skipping")
+                continue
+
+            vehicle_present = result.get("vehicle_present", False)
+            plate = result.get("plate_number")
+            vtype = result.get("vehicle_type")
+            conf = result.get("confidence", 0.5)
+
+            presence_votes.append(vehicle_present)
+            plate_readings.append(plate)
+            vehicle_types.append(vtype)
+            confidences.append(conf)
+
+            log.info(f"  Round {round_num+1}/{OCR_CONSENSUS_ROUNDS}: present={vehicle_present} plate={plate} type={vtype} conf={conf}")
+
+        if not presence_votes:
+            return None, None, None, None
+
+        # Majority vote on presence
+        presence_count = sum(1 for v in presence_votes if v)
+        vehicle_present = presence_count > len(presence_votes) / 2
+
+        # Consensus plate
+        final_plate = consensus_plate(plate_readings) if vehicle_present else None
+
+        # Most common vehicle type
+        vtypes_clean = [v for v in vehicle_types if v is not None]
+        final_vtype = Counter(vtypes_clean).most_common(1)[0][0] if vtypes_clean else None
+
+        # Average confidence
+        avg_conf = sum(confidences) / len(confidences) if confidences else 0.5
+
+        log.info(f"[{self.config['name']}] Consensus result for {slot_label}: "
+                 f"present={vehicle_present} plate={final_plate} type={final_vtype} conf={avg_conf:.2f}")
+
+        return vehicle_present, final_plate, final_vtype, avg_conf
+
     def check(self):
         """Run one detection cycle for all slots."""
         frame, jpg = grab_frame(self.config["stream_url"])
@@ -220,7 +333,7 @@ class LotMonitor:
 
         self.latest_frame_jpg = jpg
         now = time.time()
-        force_check = (now - self.last_api_check) > 300  # every 5 min
+        force_check = (now - self.last_api_check) > 10  # every 10 sec
         api_called = False
 
         slots = self.config.get("slots", ["A1"])
@@ -239,67 +352,81 @@ class LotMonitor:
             self.prev_frames[slot_label] = slot_frame.copy()
 
             if change < CHANGE_THRESH and not force_check:
-                log.debug(f"[{self.config['name']}] Slot {slot_label} Change {change:.3f} < threshold, skipping API")
                 continue
 
-            log.info(f"[{self.config['name']}] Slot {slot_label} Change={change:.3f} — calling Vision API...")
+            if change > 0.1:  # Significant movement detected
+                log.info(f"[{self.config['name']}] Slot {slot_label} Significant movement ({change:.3f}), waiting for stability...")
+                continue
+
+            log.info(f"[{self.config['name']}] Slot {slot_label} Change={change:.3f} (Stable) — running detection...")
             api_called = True
 
-            # Encode slot_frame to jpg
+            # ── Quick single-read to determine presence ──
             _, buffer = cv2.imencode('.jpg', slot_frame)
             slot_jpg = buffer.tobytes()
-
-            result = analyze_frame_with_vision(slot_jpg)
-            if result is None:
+            quick_result = analyze_frame_with_vision(slot_jpg)
+            if quick_result is None:
                 continue
 
-            vehicle_now = result.get("vehicle_present", False)
-            plate = result.get("plate_number")
-            confidence = result.get("confidence", 0.5)
-
-            # Clean plate number
-            if plate:
-                plate = plate.replace(" ", "").replace("-", "").upper()
-
+            vehicle_now_quick = quick_result.get("vehicle_present", False)
             state = self.slots_state[slot_label]
             is_occupied = state["is_occupied"]
-            current_plate = state["plate"]
 
-            # State transitions
-            if vehicle_now and not is_occupied:
-                # → Vehicle just PARKED
-                state["is_occupied"] = True
-                state["plate"] = plate
-                self.add_event("vehicle_parked", plate, f"slot={slot_label} conf={confidence}")
-                resp = sb_rpc("process_camera_detection", {
-                    "p_lot_id": self.lot_id,
-                    "p_camera_id": self.config["camera_id"],
-                    "p_slot_label": slot_label,
-                    "p_plate_number": plate or "UNKNOWN",
-                    "p_event_type": "vehicle_parked",
-                    "p_confidence": confidence,
-                })
-                self.add_event("db_updated", plate, f"resp={json.dumps(resp)}")
+            # ── State transitions ──
+            if vehicle_now_quick and not is_occupied:
+                # → Vehicle MIGHT have just parked. Run multi-frame consensus for accurate plate.
+                vehicle_confirmed, plate, vtype, confidence = self._run_consensus_ocr(i, num_slots, slot_label)
 
-            elif not vehicle_now and is_occupied:
-                # → Vehicle just UNPARKED
-                departed_plate = current_plate or "UNKNOWN"
-                state["is_occupied"] = False
-                state["plate"] = None
-                self.add_event("vehicle_unparked", departed_plate, f"slot={slot_label} conf={confidence}")
-                resp = sb_rpc("process_camera_detection", {
-                    "p_lot_id": self.lot_id,
-                    "p_camera_id": self.config["camera_id"],
-                    "p_slot_label": slot_label,
-                    "p_plate_number": departed_plate,
-                    "p_event_type": "vehicle_unparked",
-                    "p_confidence": confidence,
-                })
-                self.add_event("db_updated", departed_plate, f"resp={json.dumps(resp)}")
+                if vehicle_confirmed:
+                    state["is_occupied"] = True
+                    state["plate"] = plate
+                    self.add_event("vehicle_parked", plate, f"slot={slot_label} conf={confidence:.2f} type={vtype}")
+                    resp = sb_rpc("process_camera_detection", {
+                        "p_lot_id": self.lot_id,
+                        "p_camera_id": self.config["camera_id"],
+                        "p_slot_label": slot_label,
+                        "p_plate_number": plate or "UNKNOWN",
+                        "p_event_type": "vehicle_parked",
+                        "p_confidence": confidence,
+                    })
+                    self.add_event("db_updated", plate, f"resp={json.dumps(resp)}")
+                else:
+                    log.info(f"[{self.config['name']}] Consensus says NO vehicle in {slot_label} — false alarm")
+
+            elif not vehicle_now_quick and is_occupied:
+                # → Vehicle MIGHT have just left. Run consensus to confirm departure.
+                vehicle_still, _, _, confidence = self._run_consensus_ocr(i, num_slots, slot_label)
+
+                if not vehicle_still:
+                    departed_plate = state["plate"] or "UNKNOWN"
+                    state["is_occupied"] = False
+                    state["plate"] = None
+                    self.add_event("vehicle_unparked", departed_plate, f"slot={slot_label} conf={confidence:.2f}")
+                    resp = sb_rpc("process_camera_detection", {
+                        "p_lot_id": self.lot_id,
+                        "p_camera_id": self.config["camera_id"],
+                        "p_slot_label": slot_label,
+                        "p_plate_number": departed_plate,
+                        "p_event_type": "vehicle_unparked",
+                        "p_confidence": confidence or 0.9,
+                    })
+                    self.add_event("db_updated", departed_plate, f"resp={json.dumps(resp)}")
+                else:
+                    log.info(f"[{self.config['name']}] Consensus says vehicle STILL in {slot_label} — false alarm")
+
+            elif vehicle_now_quick and is_occupied:
+                # Vehicle still there. Optionally re-read plate if current plate is UNKNOWN.
+                if state["plate"] is None or state["plate"] == "UNKNOWN":
+                    plate_raw = quick_result.get("plate_number")
+                    plate_clean = normalize_plate(plate_raw)
+                    if plate_clean:
+                        log.info(f"[{self.config['name']}] Updating unknown plate for {slot_label} → {plate_clean}")
+                        state["plate"] = plate_clean
+                else:
+                    log.info(f"[{self.config['name']}] Slot {slot_label} No state change (still occupied, plate={state['plate']})")
 
             else:
-                s = "occupied" if vehicle_now else "empty"
-                log.info(f"[{self.config['name']}] Slot {slot_label} No state change (still {s})")
+                log.info(f"[{self.config['name']}] Slot {slot_label} No state change (still empty)")
 
         if api_called:
             self.last_api_check = now
@@ -344,25 +471,86 @@ def index():
         "service": "MarG Camera Worker",
         "cameras": {k: v["name"] for k, v in CAMERAS.items()},
         "check_interval": CHECK_INTERVAL,
+        "ocr_consensus_rounds": OCR_CONSENSUS_ROUNDS,
     })
 
 
 @app.route("/stream/<lot_id>")
 def proxy_stream(lot_id):
-    """Proxy the MJPEG stream from the camera feed for the Flutter app."""
+    """Proxy the MJPEG stream from the camera feed for the Flutter app with YOLO-like overlays."""
     cam = CAMERAS.get(lot_id)
     if not cam:
         return jsonify({"error": "camera not found"}), 404
 
+    mon = monitors.get(lot_id)
+
     def relay():
+        cap = cv2.VideoCapture(cam["stream_url"])
+        if not cap.isOpened():
+            log.error(f"Cannot open stream {cam['stream_url']} for proxy")
+            return
+            
+        slots = cam.get("slots", ["A1"])
+        num_slots = len(slots)
+
         try:
-            resp = requests.get(cam["stream_url"], stream=True, timeout=30)
-            for chunk in resp.iter_content(chunk_size=4096):
-                yield chunk
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                    
+                height, width, _ = frame.shape
+                slot_width = width // num_slots
+                
+                # Draw overlay for each slot based on current state
+                if mon:
+                    with mon.lock:
+                        for i, slot_label in enumerate(slots):
+                            x_start = i * slot_width
+                            x_end = width if i == num_slots - 1 else (i + 1) * slot_width
+                            
+                            state = mon.slots_state.get(slot_label, {})
+                            is_occupied = state.get("is_occupied", False)
+                            plate = state.get("plate", "UNKNOWN")
+                            
+                            # Draw rectangle
+                            color = (0, 0, 255) if is_occupied else (0, 255, 0)
+                            cv2.rectangle(frame, (x_start, 0), (x_end, height), color, 4)
+                            
+                            # Draw semi-transparent background for text
+                            overlay = frame.copy()
+                            cv2.rectangle(overlay, (x_start, 0), (x_start + 250, 90), (0, 0, 0), -1)
+                            cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+                            
+                            # Draw label
+                            label_text = f"Slot: {slot_label}"
+                            status_text = "OCCUPIED" if is_occupied else "VACANT"
+                            
+                            cv2.putText(frame, f"{label_text} ({status_text})", (x_start + 10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
+                            
+                            if is_occupied and plate and plate != "UNKNOWN":
+                                cv2.putText(frame, f"Plate: {plate}", (x_start + 10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+                            elif is_occupied:
+                                cv2.putText(frame, f"Detecting...", (x_start + 10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA)
+                
+                # Encode and yield
+                ret_encode, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if not ret_encode:
+                    continue
+                    
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                       
+                # Add a small sleep to prevent maxing out CPU if stream is faster than real-time (like a local video file)
+                time.sleep(0.03) 
+                
         except GeneratorExit:
             pass
         except Exception as e:
             log.warning(f"Stream relay error: {e}")
+        finally:
+            cap.release()
 
     return Response(relay(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
@@ -428,6 +616,7 @@ def init():
 if __name__ == "__main__":
     log.info("=" * 60)
     log.info("  MarG Camera Worker — Smart Parking Detection")
+    log.info(f"  OCR Consensus: {OCR_CONSENSUS_ROUNDS} rounds, {OCR_CONSENSUS_DELAY}s delay")
     log.info("=" * 60)
     init()
     log.info(f"Server starting on http://localhost:8001")
