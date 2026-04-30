@@ -79,7 +79,7 @@ class _LiveMonitorScreenState extends State<LiveMonitorScreen> {
           _events = List<Map<String, dynamic>>.from(events);
           _slots = List<Map<String, dynamic>>.from(slots);
           if (camera != null) {
-            _streamUrl = camera['stream_url'];
+            _streamUrl = '${Constants.cameraWorkerUrl}/stream/$lotId';
           }
           _loading = false;
         });
@@ -157,9 +157,7 @@ class _LiveMonitorScreenState extends State<LiveMonitorScreen> {
                             ),
                           ),
                         ),
-                        stream: _streamUrl!.endsWith('/stream') 
-                          ? _streamUrl! 
-                          : (_streamUrl!.endsWith('/') ? '${_streamUrl}stream' : '$_streamUrl/stream'),
+                        stream: _streamUrl!,
                       )
                     else
                       Container(

@@ -115,21 +115,47 @@ class MyParksScreen extends ConsumerWidget {
     return bookingsAsync.when(
       data: (bookings) {
         if (bookings.isEmpty) {
-          return const SliverToBoxAdapter(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 20.0),
+          return SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF161B22),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withOpacity(0.05)),
+                ),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Icon(
-                      Icons.bookmark_border,
-                      color: Colors.white24,
-                      size: 40,
+                    const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: Text(
+                        "Live Feed: Oriental Workshop",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                    SizedBox(height: 8),
-                    const Text(
-                      "No active activity",
-                      style: TextStyle(color: Colors.grey),
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+                      child: AspectRatio(
+                        aspectRatio: 16 / 9,
+                        child: Mjpeg(
+                          isLive: true,
+                          stream: '${Constants.cameraWorkerUrl}/stream/fb3995b6-3471-4ee2-835b-20a836e598a4',
+                          error: (context, error, stack) => Container(
+                            color: Colors.black,
+                            child: const Center(
+                              child: Text(
+                                "Stream Unavailable",
+                                style: TextStyle(color: Colors.white54),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -275,7 +301,7 @@ class MyParksScreen extends ConsumerWidget {
                       children: [
                         Mjpeg(
                           isLive: true,
-                          stream: '${Constants.cameraWorkerUrl}/proxy/$lotId',
+                          stream: '${Constants.cameraWorkerUrl}/stream/$lotId',
                           error: (context, error, stack) => Container(color: Colors.black),
                         ),
                         const Positioned(

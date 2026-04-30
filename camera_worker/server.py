@@ -84,6 +84,64 @@ def sb_update_slot_status(lot_id, slot_label, occupied: bool):
         log.info(f"Slot {slot_label} status set to {status}")
     return r.json() if r.ok else {"error": r.text}
 
+def sb_complete_session_for_plate(lot_id, plate_number):
+    """When a vehicle unparks, check if any active booking/session exists for this plate at this lot.
+    If found, mark booking as 'completed' and free the slot."""
+    if not plate_number or plate_number == "UNKNOWN":
+        return
+    
+    normalized = plate_number.replace(" ", "").replace("-", "").upper()
+    log.info(f"Checking for active bookings for plate {normalized} at lot {lot_id}")
+    
+    try:
+        # Find vehicles matching this plate
+        vehicles = sb_get(f"vehicles?plate_number=ilike.%25{normalized}%25&select=id,user_id,plate_number")
+        if not vehicles:
+            log.info(f"No registered vehicle found for plate {normalized}")
+            return
+        
+        for vehicle in vehicles:
+            vehicle_id = vehicle['id']
+            user_id = vehicle['user_id']
+            
+            # Find active/arrived bookings for this user at this lot
+            bookings = sb_get(
+                f"bookings?user_id=eq.{user_id}&lot_id=eq.{lot_id}&status=in.(active,arrived)&select=id,slot_id"
+            )
+            
+            for booking in bookings:
+                booking_id = booking['id']
+                slot_id = booking['slot_id']
+                log.info(f"Auto-completing booking {booking_id} for plate {normalized}")
+                
+                # Mark booking as completed
+                url = f"{SUPABASE_URL}/rest/v1/bookings?id=eq.{booking_id}"
+                r = requests.patch(url, headers=sb_headers(), json={"status": "completed"}, timeout=10)
+                if r.status_code >= 400:
+                    log.error(f"Failed to complete booking {booking_id}: {r.status_code}")
+                
+                # Free the slot
+                url = f"{SUPABASE_URL}/rest/v1/parking_slots?id=eq.{slot_id}"
+                requests.patch(url, headers=sb_headers(), json={"status": "free"}, timeout=10)
+                
+                log.info(f"Booking {booking_id} completed, slot freed for plate {normalized}")
+            
+            # Also complete any active parking_sessions
+            sessions = sb_get(
+                f"parking_sessions?user_id=eq.{user_id}&lot_id=eq.{lot_id}&exited_at=is.null&select=id"
+            )
+            for session in sessions:
+                session_id = session['id']
+                url = f"{SUPABASE_URL}/rest/v1/parking_sessions?id=eq.{session_id}"
+                import datetime
+                now = datetime.datetime.utcnow().isoformat() + "+00:00"
+                requests.patch(url, headers=sb_headers(), json={"exited_at": now}, timeout=10)
+                log.info(f"Session {session_id} marked as exited for plate {normalized}")
+                
+    except Exception as e:
+        log.error(f"Error completing session for plate {normalized}: {e}")
+
+
 def load_cameras_from_db():
     """Load camera config from Supabase cameras + parking_lots tables."""
     global CAMERAS
@@ -431,6 +489,8 @@ class LotMonitor:
                     self.add_event("db_updated", departed_plate, f"resp={json.dumps(resp)}")
                     # Update slot status to free in Supabase
                     sb_update_slot_status(self.lot_id, slot_label, False)
+                    # Auto-complete any booking/session for this plate
+                    sb_complete_session_for_plate(self.lot_id, departed_plate)
                 else:
                     log.info(f"[{self.config['name']}] Consensus says vehicle STILL in {slot_label} — false alarm")
 

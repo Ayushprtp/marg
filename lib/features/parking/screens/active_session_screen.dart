@@ -40,23 +40,33 @@ class ActiveSessionScreen extends ConsumerWidget {
         ? selectedDuration * costPerHour
         : (duration.inMinutes / 60.0) * costPerHour;
 
-    final lotName = isBookingOrSessionWithLots 
-        ? bookingData!['parking_lots']['name'] 
-        : (bookingData != null && bookingData!['lot'] != null ? bookingData!['lot']['name'] : "DB City Mall, Bhopal");
+    final lotName = isBookingOrSessionWithLots
+        ? (bookingData!['parking_lots']?['name'] ?? 'Unknown Lot')
+        : (bookingData != null && bookingData!['lot'] != null ? bookingData!['lot']['name'] : 'Unknown Lot');
         
     final slotLabel = slotData != null 
-        ? (slotData['slot_label'] ?? "${slotData['slot_row']}${slotData['slot_col']}") 
-        : "A - 104";
+        ? (slotData['slot_label'] ?? "${slotData['slot_row'] ?? ''}${slotData['slot_col'] ?? ''}") 
+        : "N/A";
 
     final lotId = isBookingOrSessionWithLots 
         ? bookingData!['lot_id'] 
-        : (bookingData != null && bookingData!['lot'] != null ? bookingData!['lot']['id'] : 'fb3995b6-3471-4ee2-835b-20a836e598a4');
+        : (bookingData != null && bookingData!['lot'] != null ? bookingData!['lot']['id'] : '');
 
-    // Get vehicle plate for display
+    // Get vehicle plate for display — prefer the booking's linked vehicle, then session plate, then user's default
+    final bookingPlate = bookingData?['vehicles']?['plate_number'];
+    final sessionPlate = bookingData?['plate_detected'];
     final vehiclesAsync = ref.watch(vehiclesProvider);
-    final vehiclePlate = vehiclesAsync.whenOrNull<String>(
-      data: (vehicles) => vehicles.isNotEmpty ? vehicles.first['plate_number'] as String : 'N/A',
-    ) ?? 'Loading...';
+    final userDefaultPlate = vehiclesAsync.whenOrNull<String>(
+      data: (vehicles) {
+        // Prefer the default vehicle
+        final defaultVehicle = vehicles.firstWhere(
+          (v) => v['is_default'] == true, 
+          orElse: () => vehicles.isNotEmpty ? vehicles.first : {},
+        );
+        return defaultVehicle['plate_number'] as String?;
+      },
+    );
+    final vehiclePlate = bookingPlate ?? sessionPlate ?? userDefaultPlate ?? 'Unknown Vehicle';
 
     return Scaffold(
       backgroundColor: const Color(0xFF0F1117),
@@ -109,44 +119,59 @@ class ActiveSessionScreen extends ConsumerWidget {
                         ),
                       )
                     else ...[
-                      Mjpeg(
-                        isLive: true,
-                        error: (context, error, stack) => Container(
-                          color: const Color(0xFF161B22),
-                          child: const Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.videocam_off, color: Colors.grey, size: 40),
-                                SizedBox(height: 8),
-                                Text("Stream Unavailable", style: TextStyle(color: Colors.grey)),
-                              ],
-                            ),
-                          ),
-                        ),
-                        stream: '${Constants.cameraWorkerUrl}/proxy/$lotId',
-                      ),
-                      Positioned(
-                        top: 16,
-                        left: 16,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.redAccent,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: const BoxDecoration(
-                                  color: Colors.white,
-                                  shape: BoxShape.circle,
+                        if (lotId.isNotEmpty)
+                          Mjpeg(
+                            isLive: true,
+                            error: (context, error, stack) => Container(
+                              color: const Color(0xFF161B22),
+                              child: const Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.videocam_off, color: Colors.grey, size: 40),
+                                    SizedBox(height: 8),
+                                    Text("Stream Unavailable", style: TextStyle(color: Colors.grey)),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(width: 6),
-                              const Text("LIVE", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                            ),
+                            stream: '${Constants.cameraWorkerUrl}/stream/$lotId',
+                          )
+                        else
+                          Container(
+                            color: const Color(0xFF161B22),
+                            child: const Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.videocam_off, color: Colors.grey, size: 40),
+                                  SizedBox(height: 8),
+                                  Text("Stream Unavailable", style: TextStyle(color: Colors.grey)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        Positioned(
+                          top: 16,
+                          left: 16,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                const Text("LIVE", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ),
