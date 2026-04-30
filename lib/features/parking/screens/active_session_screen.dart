@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_mjpeg/flutter_mjpeg.dart';
+import '../../../core/constants.dart';
 import '../../vehicles/providers/vehicles_provider.dart';
 import '../providers/bookings_provider.dart';
 
@@ -106,7 +107,9 @@ class ActiveSessionScreen extends ConsumerWidget {
                             ),
                           ),
                         ),
-                        stream: 'http://127.0.0.1:8001/cameras/dummy/stream',
+                        stream: isPreBooking
+                            ? '${Constants.cameraWorkerUrl}/stream/${bookingData!['lot']['id']}'
+                            : '${Constants.cameraWorkerUrl}/stream/fb3995b6-3471-4ee2-835b-20a836e598a4',
                       ),
                       Positioned(
                         top: 16,

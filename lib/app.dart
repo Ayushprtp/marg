@@ -12,6 +12,7 @@ import 'features/profile/screens/profile_screen.dart';
 import 'features/map/screens/map_screen.dart';
 import 'features/map/screens/lot_detail_screen.dart';
 import 'features/parking/screens/active_session_screen.dart';
+import 'features/parking/screens/live_monitor_screen.dart';
 import 'features/operator/screens/operator_dashboard.dart';
 import 'features/operator/screens/add_lot_screen.dart';
 import 'features/operator/screens/add_camera_screen.dart';
@@ -125,6 +126,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final data = state.extra as Map<String, dynamic>?;
           return ActiveSessionScreen(bookingData: data);
+        },
+      ),
+      GoRoute(
+        path: '/live-monitor',
+        builder: (context, state) {
+          final data = state.extra as Map<String, dynamic>;
+          return LiveMonitorScreen(booking: data);
         },
       ),
       GoRoute(

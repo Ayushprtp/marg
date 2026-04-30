@@ -150,80 +150,90 @@ class MyParksScreen extends ConsumerWidget {
         ? DateFormat('dd MMM, hh:mm a').format(DateTime.parse(booking['booked_for']).toLocal())
         : 'N/A';
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF161B22),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: status == 'active' ? const Color(0xFF799E83).withOpacity(0.3) : Colors.white.withOpacity(0.05),
+    return GestureDetector(
+      onTap: () => context.push('/live-monitor', extra: booking),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF161B22),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: status == 'active' ? const Color(0xFF799E83).withOpacity(0.3) : Colors.white.withOpacity(0.05),
+          ),
         ),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF799E83).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF799E83).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    status == 'active' ? Icons.bookmark_added : Icons.bookmark_border,
+                    color: const Color(0xFF799E83),
+                  ),
                 ),
-                child: Icon(
-                  status == 'active' ? Icons.bookmark_added : Icons.bookmark_border,
-                  color: const Color(0xFF799E83),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        lotName,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "Slot $slotLabel • $bookedFor",
+                        style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(
-                      lotName,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF799E83).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        status.toString().toUpperCase(),
+                        style: const TextStyle(color: Color(0xFF799E83), fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      "Slot $slotLabel • $bookedFor",
-                      style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
-                    ),
+                    const Icon(Icons.chevron_right, color: Colors.white24, size: 18),
                   ],
                 ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF799E83).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  status.toString().toUpperCase(),
-                  style: const TextStyle(color: Color(0xFF799E83), fontSize: 10, fontWeight: FontWeight.bold),
+              ],
+            ),
+            if (status == 'active') ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _showCancelDialog(context, ref, booking['id'], booking['slot_id']),
+                  icon: const Icon(Icons.cancel_outlined, size: 16),
+                  label: const Text("Cancel Booking"),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    side: const BorderSide(color: Colors.redAccent, width: 0.5),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
                 ),
               ),
             ],
-          ),
-          if (status == 'active') ...[
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => _showCancelDialog(context, ref, booking['id'], booking['slot_id']),
-                icon: const Icon(Icons.cancel_outlined, size: 16),
-                label: const Text("Cancel Booking"),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.redAccent,
-                  side: const BorderSide(color: Colors.redAccent, width: 0.5),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                ),
-              ),
-            ),
           ],
-        ],
+        ),
       ),
     );
   }
