@@ -20,7 +20,7 @@ final parkingHistoryProvider = FutureProvider<List<Map<String, dynamic>>>((
   final response = await supabase
       .from('bookings')
       .select(
-        '*, parking_lots(name, address), parking_slots(slot_label, slot_row, slot_col, price_per_hour), payments(amount, status, method)',
+        '*, parking_lots(name, address), parking_slots(slot_label, slot_row, slot_col, price_per_hour), payments(amount, status, method), vehicles(plate_number)',
       )
       .eq('user_id', userId)
       .inFilter('status', ['cancelled', 'expired', 'completed'])
@@ -96,7 +96,7 @@ class BookingsNotifier
       final bookingsRes = await _supabase
           .from('bookings')
           .select(
-            '*, parking_lots(name, address), parking_slots(slot_label, slot_row, slot_col, price_per_hour)',
+            '*, parking_lots(name, address), parking_slots(slot_label, slot_row, slot_col, price_per_hour), vehicles(plate_number)',
           )
           .eq('user_id', userId)
           .inFilter('status', ['active', 'arrived'])

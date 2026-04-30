@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../vehicles/providers/vehicles_provider.dart';
 import '../../parking/providers/bookings_provider.dart';
+import 'package:flutter_mjpeg/flutter_mjpeg.dart';
+import '../../../core/constants.dart';
 import '../../../main.dart';
 
 class MyParksScreen extends ConsumerWidget {
@@ -172,7 +174,14 @@ class MyParksScreen extends ConsumerWidget {
     final status = booking['status'] ?? '';
     final lotName = booking['parking_lots']?['name'] ?? 'Unknown Lot';
     final slotData = booking['parking_slots'];
+    final isSession = booking['is_session'] == true;
+    final plateNumber = isSession 
+        ? (booking['plate_detected'] ?? 'Detected Vehicle')
+        : (booking['vehicles']?['plate_number'] ?? 'Reserved');
+    
+    final lotId = booking['lot_id'];
     final slotLabel = slotData?['slot_label'] ?? 'N/A';
+    
     final bookedFor = booking['booked_for'] != null
         ? DateFormat(
             'dd MMM, hh:mm a',
@@ -222,23 +231,60 @@ class MyParksScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        lotName,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
+                    Text(
+                      lotName,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "Slot $slotLabel • $bookedFor",
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.5),
-                          fontSize: 12,
-                        ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Plate: $plateNumber",
+                      style: const TextStyle(
+                        color: Color(0xFF799E83),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
                       ),
-                    ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      "Slot $slotLabel • $bookedFor",
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.5),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (status == 'parked' || status == 'arrived')
+                Container(
+                  width: 60,
+                  height: 40,
+                  margin: const EdgeInsets.only(right: 12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Mjpeg(
+                          isLive: true,
+                          stream: '${Constants.cameraWorkerUrl}/proxy/$lotId',
+                          error: (context, error, stack) => Container(color: Colors.black),
+                        ),
+                        const Positioned(
+                          top: 2,
+                          left: 2,
+                          child: Text("LIVE", style: TextStyle(color: Colors.redAccent, fontSize: 6, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 Column(

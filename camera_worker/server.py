@@ -68,6 +68,22 @@ def sb_rpc(fn_name, payload):
         log.error(f"RPC {fn_name} failed: {r.status_code} {r.text}")
     return r.json() if r.ok else {"error": r.text}
 
+def sb_update_slot_status(lot_id, slot_label, occupied: bool):
+    """Update the status of a parking slot in Supabase.
+    occupied=True => status='occupied', else 'free'
+    """
+    status = 'occupied' if occupied else 'free'
+    # Use PATCH to update the slot record matching lot_id and slot_label
+    payload = {"status": status}
+    # Supabase REST patch endpoint with filter
+    url = f"{SUPABASE_URL}/rest/v1/parking_slots?lot_id=eq.{lot_id}&slot_label=eq.{slot_label}"
+    r = requests.patch(url, headers=sb_headers(), json=payload, timeout=10)
+    if r.status_code >= 400:
+        log.error(f"Failed to update slot {slot_label} status to {status}: {r.status_code} {r.text}")
+    else:
+        log.info(f"Slot {slot_label} status set to {status}")
+    return r.json() if r.ok else {"error": r.text}
+
 def load_cameras_from_db():
     """Load camera config from Supabase cameras + parking_lots tables."""
     global CAMERAS
@@ -390,6 +406,8 @@ class LotMonitor:
                         "p_confidence": confidence,
                     })
                     self.add_event("db_updated", plate, f"resp={json.dumps(resp)}")
+                    # Update slot status to occupied in Supabase
+                    sb_update_slot_status(self.lot_id, slot_label, True)
                 else:
                     log.info(f"[{self.config['name']}] Consensus says NO vehicle in {slot_label} — false alarm")
 
@@ -411,6 +429,8 @@ class LotMonitor:
                         "p_confidence": confidence or 0.9,
                     })
                     self.add_event("db_updated", departed_plate, f"resp={json.dumps(resp)}")
+                    # Update slot status to free in Supabase
+                    sb_update_slot_status(self.lot_id, slot_label, False)
                 else:
                     log.info(f"[{self.config['name']}] Consensus says vehicle STILL in {slot_label} — false alarm")
 
