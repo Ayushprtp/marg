@@ -86,7 +86,7 @@ class _ClientHomeScreenState extends ConsumerState<ClientHomeScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Phone: ${profile?['phone_number'] ?? 'Not provided'}',
+                    'Phone: ${profile?['phone'] ?? 'Not provided'}',
                     style: const TextStyle(fontSize: 16, color: Colors.grey),
                   ),
                   const SizedBox(height: 4),

@@ -24,7 +24,7 @@ class VehiclesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
     return List<Map<String, dynamic>>.from(response);
   }
 
-  Future<String> verifyAndAddVehicle(String plate, String engineLast6, String chassisLast6) async {
+  Future<String> verifyAndAddVehicle(String plate, String engineLast5, String chassisLast5) async {
     try {
       final dio = Dio();
       final response = await dio.get('${Constants.vehicleApiBase}/vehicle/$plate');
@@ -33,8 +33,8 @@ class VehiclesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
       final apiEngine = data['engine'] as String;
       final apiChassis = data['chassis'] as String;
 
-      final engineMatch = apiEngine.toUpperCase().endsWith(engineLast6.toUpperCase());
-      final chassisMatch = apiChassis.toUpperCase().endsWith(chassisLast6.toUpperCase());
+      final engineMatch = apiEngine.toUpperCase().endsWith(engineLast5.toUpperCase());
+      final chassisMatch = apiChassis.toUpperCase().endsWith(chassisLast5.toUpperCase());
 
       if (!engineMatch || !chassisMatch) {
         return "Engine or Chassis number doesn't match our records.";
@@ -54,19 +54,10 @@ class VehiclesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
       await Supabase.instance.client.from('vehicles').insert({
         'user_id': user!.id,
         'plate_number': plate.toUpperCase(),
-        'engine_number': apiEngine,
-        'chassis_number': apiChassis,
-        'owner_name': data['owner'],
-        'manufacturer': data['manufacturer'],
-        'maker_model': data['makerModel'],
-        'vehicle_class': data['vehicleClass'],
-        'vehicle_type': vehicleType,
-        'fuel_type': data['fuelType'],
-        'color': data['vehicleColor'],
-        'rc_status': data['rcStatus'],
-        'insurance_upto': data['insuranceUpto'],
-        'fitness_upto': data['fitnessUpto'],
-        'raw_api_response': data,
+        'engine_number': engineLast5.toUpperCase(),
+        'chassis_number': chassisLast5.toUpperCase(),
+        'maker_model': data['makerModel'], // Keeping this for UI identification
+        'vehicle_type': vehicleType,      // Keeping this for functional logic
         'verified': true,
         'is_default': currentVehicles.isEmpty,
       });
@@ -76,5 +67,21 @@ class VehiclesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
     } catch (e) {
       return "Verification failed: $e";
     }
+  }
+
+  Future<void> deleteVehicle(String vehicleId) async {
+    try {
+      await Supabase.instance.client
+          .from('vehicles')
+          .delete()
+          .eq('id', vehicleId);
+      ref.invalidateSelf();
+    } catch (e) {
+      print('Delete vehicle error: $e');
+    }
+  }
+
+  Future<void> signOut() async {
+    await Supabase.instance.client.auth.signOut();
   }
 }

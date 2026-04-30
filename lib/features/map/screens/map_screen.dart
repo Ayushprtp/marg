@@ -8,6 +8,7 @@ import '../providers/map_provider.dart';
 import '../providers/routing_provider.dart';
 import '../../vehicles/providers/vehicles_provider.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -28,28 +29,57 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   final MapController _mapController = MapController();
 
   Future<void> _getCurrentLocation() async {
-    bool serviceEnabled;
-    LocationPermission permission;
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Location services are disabled. Please enable them."),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
 
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return;
+      }
 
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return;
+      if (permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text("Location permission denied. Please enable in Settings."),
+              backgroundColor: Colors.orange,
+              action: SnackBarAction(
+                label: "Settings",
+                textColor: Colors.white,
+                onPressed: () => Geolocator.openAppSettings(),
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final newLocation = LatLng(position.latitude, position.longitude);
+
+      if (mounted) {
+        setState(() {
+          _userLocation = newLocation;
+        });
+        _mapController.move(newLocation, 15);
+      }
+    } catch (e) {
+      debugPrint('Location error: $e');
     }
-
-    if (permission == LocationPermission.deniedForever) return;
-
-    final position = await Geolocator.getCurrentPosition();
-    final newLocation = LatLng(position.latitude, position.longitude);
-    
-    setState(() {
-      _userLocation = newLocation;
-    });
-
-    _mapController.move(newLocation, 15);
   }
   @override
   Widget build(BuildContext context) {
@@ -70,8 +100,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       
       return Marker(
         point: LatLng(lot['latitude'], lot['longitude']),
-        width: 80,
-        height: 80,
+        width: 120,
+        height: 120,
         builder: (ctx) => GestureDetector(
           onTap: () {
             if (_userLocation != null) {
@@ -91,16 +121,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.8),
+                    color: Colors.black.withOpacity(0.85),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: isAvailable ? const Color(0xFF00FFD1) : Colors.redAccent,
+                      color: isAvailable ? const Color(0xFF6366F1) : Colors.redAccent,
                       width: 1.5,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: (isAvailable ? const Color(0xFF00FFD1) : Colors.redAccent).withOpacity(0.3),
-                        blurRadius: 10,
+                        color: (isAvailable ? const Color(0xFF799E83) : Colors.redAccent).withOpacity(0.4),
+                        blurRadius: 12,
                         spreadRadius: 2,
                       ),
                     ],
@@ -110,16 +140,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     children: [
                       Icon(
                         isAvailable ? Icons.check_circle : Icons.error,
-                        color: isAvailable ? const Color(0xFF00FFD1) : Colors.redAccent,
+                        color: isAvailable ? const Color(0xFF799E83) : Colors.redAccent,
                         size: 14,
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        '$availableSlots',
+                        '$availableSlots/$totalSlots',
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w900,
-                          fontSize: 14,
+                          fontSize: 12,
                         ),
                       ),
                     ],
@@ -128,7 +158,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 CustomPaint(
                   size: const Size(20, 10),
                   painter: TrianglePainter(
-                    color: Colors.black.withOpacity(0.8),
+                    color: const Color(0xFF0F1117).withOpacity(0.8),
                   ),
                 ),
                 Container(
@@ -143,10 +173,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       ),
                     ],
                   ),
-                  child: CircleAvatar(
+                  child: const CircleAvatar(
                     radius: 18,
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    child: const Icon(Icons.local_parking, color: Colors.white, size: 20),
+                    backgroundColor: Color(0xFF799E83),
+                    child: Icon(Icons.local_parking, color: Colors.white, size: 20),
                   ),
                 ),
               ],
@@ -157,7 +187,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }).toList();
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF0F1117),
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('SmartPark Bhopal', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -198,7 +228,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     Polyline(
                       points: routePoints,
                       strokeWidth: 5,
-                      color: const Color(0xFF00FFD1),
+                      color: const Color(0xFF799E83),
                       strokeCap: StrokeCap.round,
                     ),
                   ],
@@ -219,7 +249,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                             height: 50,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: const Color(0xFF007AFF).withOpacity(0.2),
+                              color: const Color(0xFF799E83).withOpacity(0.2),
                             ),
                           ),
                           Container(
@@ -228,7 +258,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: Colors.white,
-                              border: Border.all(color: const Color(0xFF007AFF), width: 3),
+                              border: Border.all(color: const Color(0xFF799E83), width: 3),
                             ),
                           ),
                         ],
@@ -271,35 +301,63 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       ),
                     ),
                   ),
+                  IconButton(
+                    icon: const Icon(Icons.directions_rounded, color: Color(0xFF799E83)),
+                    onPressed: () {
+                      launchUrl(Uri.parse('https://www.google.com/maps/search/?api=1&query=23.2599,77.4126'));
+                    },
+                    tooltip: "Quick Directions",
+                  ),
                   Container(
                     width: 1,
                     height: 24,
                     color: Colors.grey.withOpacity(0.3),
                   ),
                   const SizedBox(width: 12),
-                  const Icon(Icons.tune, color: Color(0xFF00FFD1)),
+                  const Icon(Icons.tune, color: Color(0xFF799E83)),
                 ],
               ),
             ),
           ),
-        ],
-      ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          if (routePoints.isNotEmpty)
-            FloatingActionButton(
-              heroTag: 'clear_route',
-              onPressed: () => ref.read(routingProvider.notifier).clearRoute(),
-              backgroundColor: Colors.redAccent,
-              child: const Icon(Icons.close, color: Colors.white),
+          // ── Location & Route FABs ─────────────────────────
+          Positioned(
+            right: 16,
+            bottom: 100, // Above the curved nav bar
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (routePoints.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: FloatingActionButton(
+                      heroTag: 'clear_route',
+                      onPressed: () => ref.read(routingProvider.notifier).clearRoute(),
+                      backgroundColor: Colors.redAccent,
+                      elevation: 8,
+                      child: const Icon(Icons.close, color: Colors.white),
+                    ),
+                  ),
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF799E83).withOpacity(0.4),
+                        blurRadius: 16,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: FloatingActionButton(
+                    heroTag: 'my_location',
+                    onPressed: _getCurrentLocation,
+                    backgroundColor: const Color(0xFF1E1E1E),
+                    elevation: 8,
+                    child: const Icon(Icons.my_location, color: Color(0xFF799E83), size: 28),
+                  ),
+                ),
+              ],
             ),
-          const SizedBox(height: 16),
-          FloatingActionButton(
-            heroTag: 'my_location',
-            onPressed: _getCurrentLocation,
-            backgroundColor: const Color(0xFF1E1E1E),
-            child: const Icon(Icons.my_location, color: Color(0xFF00FFD1)),
           ),
         ],
       ),

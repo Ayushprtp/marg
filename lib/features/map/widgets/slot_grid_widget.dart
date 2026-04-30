@@ -45,7 +45,7 @@ class SlotGridWidget extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _buildLegendItem("Available", const Color(0xFF00FFD1)),
+              _buildLegendItem("Available", const Color(0xFF799E83)),
               const SizedBox(width: 20),
               _buildLegendItem("Occupied", Colors.redAccent),
               const SizedBox(width: 20),
@@ -125,7 +125,7 @@ class SlotGridWidget extends StatelessWidget {
         break;
       case 'free':
       default:
-        color = const Color(0xFF00FFD1);
+        color = const Color(0xFF799E83);
         break;
     }
 

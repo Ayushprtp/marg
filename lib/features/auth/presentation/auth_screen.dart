@@ -84,7 +84,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
             'username': usernameController.text.trim(),
             if (firstNameController.text.trim().isNotEmpty) 'first_name': firstNameController.text.trim(),
             if (lastNameController.text.trim().isNotEmpty) 'last_name': lastNameController.text.trim(),
-            if (phoneController.text.trim().isNotEmpty) 'phone_number': phoneController.text.trim(),
+            if (phoneController.text.trim().isNotEmpty) 'phone': phoneController.text.trim(),
             if (dobController.text.trim().isNotEmpty) 'dob': dobController.text.trim(),
           });
           

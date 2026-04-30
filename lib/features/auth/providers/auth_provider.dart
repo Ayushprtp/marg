@@ -48,7 +48,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> _fetchRole(User user) async {
     try {
       final response = await Supabase.instance.client
-          .from('profiles')
+          .from('user_roles')
           .select('role')
           .eq('id', user.id)
           .maybeSingle();

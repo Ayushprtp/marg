@@ -12,21 +12,38 @@ class MapNotifier extends StateNotifier<List<Map<String, dynamic>>> {
   }
 
   Future<void> fetchLots() async {
-    final response = await Supabase.instance.client
+    final lotsResponse = await Supabase.instance.client
         .from('parking_lots')
         .select('*')
         .eq('is_active', true);
     
-    if (response.isEmpty) {
+    if (lotsResponse.isEmpty) {
       await DataSeeder.seedBhopalData();
-      final retryResponse = await Supabase.instance.client
-          .from('parking_lots')
-          .select('*')
-          .eq('is_active', true);
-      state = List<Map<String, dynamic>>.from(retryResponse);
-    } else {
-      state = List<Map<String, dynamic>>.from(response);
+      return fetchLots(); // Recursive call after seeding
     }
+
+    final List<Map<String, dynamic>> enrichedLots = [];
+    
+    for (var lot in lotsResponse) {
+      final allSlots = await Supabase.instance.client
+          .from('parking_slots')
+          .select('id')
+          .eq('lot_id', lot['id']);
+
+      final availableSlots = await Supabase.instance.client
+          .from('parking_slots')
+          .select('id')
+          .eq('lot_id', lot['id'])
+          .eq('status', 'free');
+
+      enrichedLots.add({
+        ...lot,
+        'total_slots': (allSlots as List).length,
+        'available_slots': (availableSlots as List).length,
+      });
+    }
+    
+    state = enrichedLots;
   }
 }
 
